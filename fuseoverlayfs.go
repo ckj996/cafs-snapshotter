@@ -68,6 +68,7 @@ type snapshotter struct {
 // diffs are stored under the provided root. A metadata file is stored under
 // the root.
 func NewSnapshotter(root string, opts ...Opt) (snapshots.Snapshotter, error) {
+	log.G(context.Background()).WithField("root", root).Debug("NewSnapshotter")
 	var config SnapshotterConfig
 	for _, opt := range opts {
 		if err := opt(&config); err != nil {
@@ -100,6 +101,7 @@ func NewSnapshotter(root string, opts ...Opt) (snapshots.Snapshotter, error) {
 // Should be used for parent resolution, existence checks and to discern
 // the kind of snapshot.
 func (o *snapshotter) Stat(ctx context.Context, key string) (snapshots.Info, error) {
+	log.G(ctx).WithField("key", key).Debug("Stat")
 	ctx, t, err := o.ms.TransactionContext(ctx, false)
 	if err != nil {
 		return snapshots.Info{}, err
@@ -114,6 +116,7 @@ func (o *snapshotter) Stat(ctx context.Context, key string) (snapshots.Info, err
 }
 
 func (o *snapshotter) Update(ctx context.Context, info snapshots.Info, fieldpaths ...string) (snapshots.Info, error) {
+	log.G(ctx).WithField("info", info).Debug("Update")
 	ctx, t, err := o.ms.TransactionContext(ctx, true)
 	if err != nil {
 		return snapshots.Info{}, err
@@ -139,6 +142,7 @@ func (o *snapshotter) Update(ctx context.Context, info snapshots.Info, fieldpath
 //
 // For committed snapshots, the value is returned from the metadata database.
 func (o *snapshotter) Usage(ctx context.Context, key string) (snapshots.Usage, error) {
+	log.G(ctx).WithField("key", key).Debug("Usage")
 	ctx, t, err := o.ms.TransactionContext(ctx, false)
 	if err != nil {
 		return snapshots.Usage{}, err
@@ -166,10 +170,12 @@ func (o *snapshotter) Usage(ctx context.Context, key string) (snapshots.Usage, e
 }
 
 func (o *snapshotter) Prepare(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
+	log.G(ctx).WithField("key", key).WithField("parent", parent).Debug("Prepare")
 	return o.createSnapshot(ctx, snapshots.KindActive, key, parent, opts)
 }
 
 func (o *snapshotter) View(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
+	log.G(ctx).WithField("key", key).WithField("parent", parent).Debug("View")
 	return o.createSnapshot(ctx, snapshots.KindView, key, parent, opts)
 }
 
@@ -178,11 +184,12 @@ func (o *snapshotter) View(ctx context.Context, key, parent string, opts ...snap
 //
 // This can be used to recover mounts after calling View or Prepare.
 func (o *snapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, error) {
+	log.G(ctx).WithField("key", key).Debug("Mounts")
 	ctx, t, err := o.ms.TransactionContext(ctx, false)
 	if err != nil {
 		return nil, err
 	}
-	s, err := storage.GetSnapshot(ctx, key)
+	s, _ := storage.GetSnapshot(ctx, key)
 	_, info, _, err := storage.GetInfo(ctx, key)
 	t.Rollback()
 	if err != nil {
@@ -192,6 +199,7 @@ func (o *snapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, er
 }
 
 func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snapshots.Opt) error {
+	log.G(ctx).WithField("key", key).WithField("name", name).Debug("Commit")
 	ctx, t, err := o.ms.TransactionContext(ctx, true)
 	if err != nil {
 		return err
@@ -226,6 +234,7 @@ func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 // immediately become unavailable and unrecoverable. Disk space will
 // be freed up on the next call to `Cleanup`.
 func (o *snapshotter) Remove(ctx context.Context, key string) (err error) {
+	log.G(ctx).WithField("key", key).Debug("Remove")
 	ctx, t, err := o.ms.TransactionContext(ctx, true)
 	if err != nil {
 		return err
@@ -270,6 +279,7 @@ func (o *snapshotter) Remove(ctx context.Context, key string) (err error) {
 
 // Walk the committed snapshots.
 func (o *snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...string) error {
+	log.G(ctx).WithField("fs", fs).Debug("Walk")
 	ctx, t, err := o.ms.TransactionContext(ctx, false)
 	if err != nil {
 		return err
@@ -280,6 +290,7 @@ func (o *snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...str
 
 // Cleanup cleans up disk resources from removed or abandoned snapshots
 func (o *snapshotter) Cleanup(ctx context.Context) error {
+	log.G(ctx).Debug("Cleanup")
 	cleanup, err := o.cleanupDirectories(ctx)
 	if err != nil {
 		return err
