@@ -29,14 +29,14 @@ import (
 	snapshotsapi "github.com/containerd/containerd/api/services/snapshots/v1"
 	"github.com/containerd/containerd/contrib/snapshotservice"
 
-	fuseoverlayfs "github.com/containerd/fuse-overlayfs-snapshotter"
-	"github.com/containerd/fuse-overlayfs-snapshotter/cmd/containerd-fuse-overlayfs-grpc/version"
+	cafsnap "github.com/ckj996/cafs-snapshotter"
+	"github.com/ckj996/cafs-snapshotter/cmd/containerd-cafs-grpc/version"
 )
 
 // main is from https://github.com/containerd/containerd/blob/b9fad5e310fafb453def5f1e7094f4c36a9806d2/PLUGINS.md
 func main() {
 	log.SetFormatter(&log.JSONFormatter{})
-	log.WithFields(log.Fields{"version": version.Version, "revision": version.Revision}).Info("containerd-fuse-overlayfs-grpc")
+	log.WithFields(log.Fields{"version": version.Version, "revision": version.Revision}).Info("containerd-cafs-grpc")
 	// Provide a unix address to listen to, this will be the `address`
 	// in the `proxy_plugin` configuration.
 	// The root will be used to store the snapshots.
@@ -63,10 +63,10 @@ func serve(address, root string) error {
 		return err
 	}
 	// Instantiate the snapshotter
-	if err := fuseoverlayfs.Supported(root); err != nil {
+	if err := cafsnap.Supported(root); err != nil {
 		return err
 	}
-	sn, err := fuseoverlayfs.NewSnapshotter(root)
+	sn, err := cafsnap.NewSnapshotter(root)
 	if err != nil {
 		return err
 	}

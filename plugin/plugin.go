@@ -16,17 +16,17 @@
    limitations under the License.
 */
 
-package fuseoverlayfs
+package cafsnap
 
 import (
 	"errors"
 
+	cafsnap "github.com/ckj996/cafs-snapshotter"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/plugin"
-	fuseoverlayfs "github.com/containerd/fuse-overlayfs-snapshotter"
 )
 
-// Config represents configuration for the fuse-overlayfs plugin.
+// Config represents configuration for the cafs-snapshotter plugin.
 type Config struct {
 	// Root directory for the plugin
 	RootPath string `toml:"root_path"`
@@ -35,14 +35,14 @@ type Config struct {
 func init() {
 	plugin.Register(&plugin.Registration{
 		Type:   plugin.SnapshotPlugin,
-		ID:     "fuse-overlayfs",
+		ID:     "cafs",
 		Config: &Config{},
 		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
 			ic.Meta.Platforms = append(ic.Meta.Platforms, platforms.DefaultSpec())
 
 			config, ok := ic.Config.(*Config)
 			if !ok {
-				return nil, errors.New("invalid fuse-overlayfs configuration")
+				return nil, errors.New("invalid cafs configuration")
 			}
 
 			root := ic.Root
@@ -51,7 +51,7 @@ func init() {
 			}
 
 			ic.Meta.Exports["root"] = root
-			return fuseoverlayfs.NewSnapshotter(root)
+			return cafsnap.NewSnapshotter(root)
 		},
 	})
 }

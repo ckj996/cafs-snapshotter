@@ -16,7 +16,7 @@
    limitations under the License.
 */
 
-package fuseoverlayfs
+package cafsnap
 
 import (
 	"context"
@@ -39,15 +39,15 @@ func newSnapshotter(ctx context.Context, root string) (snapshots.Snapshotter, fu
 	return snapshotter, func() error { return snapshotter.Close() }, nil
 }
 
-func TestFUSEOverlayFS(t *testing.T) {
+func TestCAFS(t *testing.T) {
 	testutil.RequiresRoot(t)
-	td, err := ioutil.TempDir("", "fuseoverlayfs-test")
+	td, err := ioutil.TempDir("", "cafsnap-test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(td)
 	if err := Supported(td); err != nil {
-		t.Skipf("fuse-overlayfs not supported: %v", err)
+		t.Skipf("cafs not supported: %v", err)
 	}
-	testsuite.SnapshotterSuite(t, "fuse-overlayfs", newSnapshotter)
+	testsuite.SnapshotterSuite(t, "cafs", newSnapshotter)
 }

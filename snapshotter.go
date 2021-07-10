@@ -16,7 +16,7 @@
    limitations under the License.
 */
 
-package fuseoverlayfs
+package cafsnap
 
 import (
 	"context"
