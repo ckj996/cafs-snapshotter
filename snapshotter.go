@@ -27,6 +27,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/ckj996/cafs-snapshotter/helper"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/snapshots"
@@ -170,13 +171,14 @@ func (o *snapshotter) Usage(ctx context.Context, key string) (snapshots.Usage, e
 }
 
 func (o *snapshotter) Prepare(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
-	log.G(ctx).WithField("key", key).WithField("parent", parent).Debug("Prepare")
-	return o.createSnapshot(ctx, snapshots.KindActive, key, parent, opts)
+	unpacking := helper.IsExtract(key)
+	log.G(ctx).WithField("key", key).WithField("parent", parent).WithField("unpacking", unpacking).Debug("Prepare")
+	return o.createSnapshot(ctx, snapshots.KindActive, key, parent, unpacking, opts)
 }
 
 func (o *snapshotter) View(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
 	log.G(ctx).WithField("key", key).WithField("parent", parent).Debug("View")
-	return o.createSnapshot(ctx, snapshots.KindView, key, parent, opts)
+	return o.createSnapshot(ctx, snapshots.KindView, key, parent, false, opts)
 }
 
 // Mounts returns the mounts for the transaction identified by key. Can be
@@ -199,7 +201,8 @@ func (o *snapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, er
 }
 
 func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snapshots.Opt) error {
-	log.G(ctx).WithField("key", key).WithField("name", name).Debug("Commit")
+	extract := helper.IsExtract(key)
+	log.G(ctx).WithField("key", key).WithField("name", name).WithField("extract", extract).Debug("Commit")
 	ctx, t, err := o.ms.TransactionContext(ctx, true)
 	if err != nil {
 		return err
@@ -217,6 +220,19 @@ func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 	id, _, _, err := storage.GetInfo(ctx, key)
 	if err != nil {
 		return err
+	}
+
+	if extract {
+		mnt := mount.Mount{
+			Type:    "fuse.cafs",
+			Source:  filepath.Join(o.metaPath(id), "metadata.json"),
+			Options: []string{},
+		}
+		go func() {
+			if err := mnt.Mount(o.upperPath(id)); err != nil {
+				log.G(ctx).WithField("error", err).Error("cafs mount failed")
+			}
+		}()
 	}
 
 	usage, err := fs.DiskUsage(ctx, o.upperPath(id))
@@ -347,7 +363,7 @@ func (o *snapshotter) getCleanupDirectories(ctx context.Context, t storage.Trans
 	return cleanup, nil
 }
 
-func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, key, parent string, opts []snapshots.Opt) (_ []mount.Mount, err error) {
+func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, key, parent string, unpacking bool, opts []snapshots.Opt) (_ []mount.Mount, err error) {
 	ctx, t, err := o.ms.TransactionContext(ctx, true)
 	if err != nil {
 		return nil, err
@@ -393,14 +409,22 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 	}
 
 	if len(s.ParentIDs) > 0 {
-		st, err := os.Stat(o.upperPath(s.ParentIDs[0]))
+		var parentPath, tmpPath string
+		if unpacking {
+			parentPath = o.metaPath(s.ParentIDs[0])
+			tmpPath = filepath.Join(td, "meta")
+		} else {
+			parentPath = o.upperPath(s.ParentIDs[0])
+			tmpPath = filepath.Join(td, "fs")
+		}
+		st, err := os.Stat(parentPath)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to stat parent")
 		}
 
 		stat := st.Sys().(*syscall.Stat_t)
 
-		if err := os.Lchown(filepath.Join(td, "fs"), int(stat.Uid), int(stat.Gid)); err != nil {
+		if err := os.Lchown(tmpPath, int(stat.Uid), int(stat.Gid)); err != nil {
 			if rerr := t.Rollback(); rerr != nil {
 				log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
 			}
@@ -421,7 +445,18 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 		return nil, errors.Wrap(err, "commit failed")
 	}
 
-	return o.mounts(s, info), nil
+	if unpacking {
+		return []mount.Mount{{
+			Source: o.metaPath(s.ID),
+			Type:   "bind",
+			Options: []string{
+				"rw",
+				"rbind",
+			},
+		}}, nil
+	} else {
+		return o.mounts(s, info), nil
+	}
 }
 
 func (o *snapshotter) prepareDirectory(ctx context.Context, snapshotDir string, kind snapshots.Kind) (string, error) {
@@ -431,6 +466,10 @@ func (o *snapshotter) prepareDirectory(ctx context.Context, snapshotDir string, 
 	}
 
 	if err := os.Mkdir(filepath.Join(td, "fs"), 0755); err != nil {
+		return td, err
+	}
+
+	if err := os.Mkdir(filepath.Join(td, "meta"), 0755); err != nil {
 		return td, err
 	}
 
@@ -511,6 +550,10 @@ func (o *snapshotter) upperPath(id string) string {
 
 func (o *snapshotter) workPath(id string) string {
 	return filepath.Join(o.root, "snapshots", id, "work")
+}
+
+func (o *snapshotter) metaPath(id string) string {
+	return filepath.Join(o.root, "snapshots", id, "meta")
 }
 
 // Close closes the snapshotter
