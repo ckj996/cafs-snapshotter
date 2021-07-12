@@ -30,10 +30,10 @@ import (
 	"github.com/pkg/errors"
 )
 
-// supportsReadonlyMultipleLowerDir checks if read-only multiple lowerdirs can be mounted with fuse-overlayfs.
+// supportsReadonlyMultipleLowerDir checks if read-only multiple lowerdirs can be mounted with overlayfs.
 // https://github.com/containers/fuse-overlayfs/pull/133
 func supportsReadonlyMultipleLowerDir(d string) error {
-	td, err := ioutil.TempDir(d, "fuseoverlayfs-check")
+	td, err := ioutil.TempDir(d, "overlayfs-check")
 	if err != nil {
 		return err
 	}
@@ -51,13 +51,13 @@ func supportsReadonlyMultipleLowerDir(d string) error {
 
 	opts := []string{fmt.Sprintf("lowerdir=%s:%s", filepath.Join(td, "lower2"), filepath.Join(td, "lower1"))}
 	m := mount.Mount{
-		Type:    "fuse3." + fuseoverlayfsBinary,
+		Type:    "overlay",
 		Source:  "overlay",
 		Options: opts,
 	}
 	dest := filepath.Join(td, "merged")
 	if err := m.Mount(dest); err != nil {
-		return errors.Wrapf(err, "failed to mount fuse-overlayfs (%+v) on %s", m, dest)
+		return errors.Wrapf(err, "failed to mount overlayfs (%+v) on %s", m, dest)
 	}
 	if err := mount.UnmountAll(dest, 0); err != nil {
 		log.L.WithError(err).Warnf("Failed to unmount check directory %v", dest)
@@ -69,14 +69,14 @@ func supportsReadonlyMultipleLowerDir(d string) error {
 // Supported is not called during plugin initialization, but exposed for downstream projects which uses
 // this snapshotter as a library.
 func Supported(root string) error {
-	if _, err := exec.LookPath(fuseoverlayfsBinary); err != nil {
-		return errors.Wrapf(err, "%s not installed", fuseoverlayfsBinary)
+	if _, err := exec.LookPath(cafsBinary); err != nil {
+		return errors.Wrapf(err, "%s not installed", cafsBinary)
 	}
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return err
 	}
 	if err := supportsReadonlyMultipleLowerDir(root); err != nil {
-		return errors.Wrap(err, "fuse-overlayfs not functional, make sure running with kernel >= 4.18")
+		return errors.Wrap(err, "overlayfs not functional, make sure running with kernel >= 4.0")
 	}
 	return nil
 }

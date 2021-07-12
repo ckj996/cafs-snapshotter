@@ -37,7 +37,8 @@ import (
 )
 
 const (
-	fuseoverlayfsBinary = "fuse-overlayfs"
+	cafsBinary     = "cafs"
+	fusecafsBinary = "fuse." + cafsBinary
 )
 
 // SnapshotterConfig is used to configure the overlay snapshotter instance
@@ -224,7 +225,7 @@ func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 
 	if extract {
 		mnt := mount.Mount{
-			Type:    "fuse.cafs",
+			Type:    fusecafsBinary,
 			Source:  filepath.Join(o.metaPath(id), "metadata.json"),
 			Options: []string{},
 		}
@@ -536,7 +537,7 @@ func (o *snapshotter) mounts(s storage.Snapshot, info snapshots.Info) []mount.Mo
 	}
 	return []mount.Mount{
 		{
-			Type:    "fuse3." + fuseoverlayfsBinary,
+			Type:    "overlay",
 			Source:  "overlay",
 			Options: options,
 		},
