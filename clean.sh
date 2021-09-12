@@ -19,6 +19,7 @@ set -euo pipefail
 CONTAINERD_ROOT=/var/lib/containerd/
 SNAPSHOTTER_ROOT=/var/lib/containerd-cafs-snapshotter/
 SNAPSHOTTER_SOCKET=/run/containerd-cafs-grpc/containerd-cafs-grpc.sock
+SNAPSHOTTER_POOL=/home/cafs/pool/
 
 function kill_all {
     if [ "${1}" != "" ] ; then
@@ -36,6 +37,7 @@ function cleanup {
              -maxdepth 1 -mindepth 1 -type d -exec umount "{}/fs" \;
     fi
     rm -rf "${SNAPSHOTTER_ROOT}"*
+    rm -rf "${SNAPSHOTTER_POOL}"*
 }
 
 echo "cleaning up the environment..."

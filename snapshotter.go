@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	cafsBinary     = "cafs"
+	cafsBinary     = "merklefs"
 	fusecafsBinary = "fuse." + cafsBinary
 )
 
