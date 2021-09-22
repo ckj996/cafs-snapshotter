@@ -33,6 +33,7 @@ import (
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/containerd/snapshots/storage"
 	"github.com/containerd/continuity/fs"
+	"github.com/moby/sys/mountinfo"
 	"github.com/pkg/errors"
 )
 
@@ -209,8 +210,7 @@ func (o *snapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, er
 }
 
 func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snapshots.Opt) error {
-	extract := helper.IsExtract(key)
-	log.G(ctx).WithField("key", key).WithField("name", name).WithField("extract", extract).Debug("Commit")
+	log.G(ctx).WithField("key", key).WithField("name", name).Debug("Commit")
 	ctx, t, err := o.ms.TransactionContext(ctx, true)
 	if err != nil {
 		return err
@@ -228,19 +228,6 @@ func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 	id, _, _, err := storage.GetInfo(ctx, key)
 	if err != nil {
 		return err
-	}
-
-	if extract {
-		mnt := mount.Mount{
-			Type:    fusecafsBinary,
-			Source:  filepath.Join(o.metaPath(id), "metadata.json"),
-			Options: []string{},
-		}
-		go func() {
-			if err := mnt.Mount(o.upperPath(id)); err != nil {
-				log.G(ctx).WithField("error", err).Error("cafs mount failed")
-			}
-		}()
 	}
 
 	usage, err := fs.DiskUsage(ctx, o.upperPath(id))
@@ -417,11 +404,9 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 	}
 
 	_, info, _, err := storage.GetInfo(ctx, key)
-	_, unpacking := info.Labels[lazyLabel]
-
 	if len(s.ParentIDs) > 0 {
 		var parentPath, tmpPath string
-		if unpacking {
+		if _, ok := info.Labels[lazyLabel]; ok {
 			parentPath = o.metaPath(s.ParentIDs[0])
 			tmpPath = filepath.Join(td, "meta")
 		} else {
@@ -454,18 +439,7 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 		return nil, errors.Wrap(err, "commit failed")
 	}
 
-	if unpacking {
-		return []mount.Mount{{
-			Source: o.metaPath(s.ID),
-			Type:   "bind",
-			Options: []string{
-				"rw",
-				"rbind",
-			},
-		}}, nil
-	} else {
-		return o.mounts(s, info), nil
-	}
+	return o.mounts(s, info), nil
 }
 
 func (o *snapshotter) prepareDirectory(ctx context.Context, snapshotDir string, kind snapshots.Kind) (string, error) {
@@ -491,7 +465,46 @@ func (o *snapshotter) prepareDirectory(ctx context.Context, snapshotDir string, 
 	return td, nil
 }
 
+func (o *snapshotter) tryLazyMount(id string) {
+	if _, err := os.Stat(o.metaPath(id)); err != nil {
+		return
+	}
+	if ok, err := mountinfo.Mounted(o.upperPath(id)); err != nil {
+		return
+	} else if !ok {
+		mnt := mount.Mount{
+			Type:    fusecafsBinary,
+			Source:  filepath.Join(o.metaPath(id), "metadata.json"),
+			Options: []string{},
+		}
+		mnt.Mount(o.upperPath(id))
+	}
+}
+
 func (o *snapshotter) mounts(s storage.Snapshot, info snapshots.Info) []mount.Mount {
+	// if this is a lazy snapshot
+	if _, ok := info.Labels[lazyLabel]; ok {
+		if info.Kind == snapshots.KindActive {
+			return []mount.Mount{
+				{
+					Source: o.metaPath(s.ID),
+					Type:   "bind",
+					Options: []string{
+						"rw",
+						"rbind",
+					},
+				},
+			}
+		}
+		return []mount.Mount{
+			{
+				Type:    fusecafsBinary,
+				Source:  filepath.Join(o.metaPath(s.ID), "metadata.json"),
+				Options: []string{},
+			},
+		}
+	}
+
 	if len(s.ParentIDs) == 0 {
 		// if we only have one layer/no parents then just return a bind mount as overlay
 		// will not work
@@ -511,6 +524,11 @@ func (o *snapshotter) mounts(s storage.Snapshot, info snapshots.Info) []mount.Mo
 			},
 		}
 	}
+
+	for _, id := range s.ParentIDs {
+		o.tryLazyMount(id)
+	}
+
 	var options []string
 
 	if s.Kind == snapshots.KindActive {
