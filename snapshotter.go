@@ -39,6 +39,8 @@ import (
 const (
 	cafsBinary     = "merklefs"
 	fusecafsBinary = "fuse." + cafsBinary
+	lazyLabel      = "containerd.io/snapshot/lazy"
+	lazyLabelVal   = "lazy snapshot"
 )
 
 // SnapshotterConfig is used to configure the overlay snapshotter instance
@@ -174,12 +176,17 @@ func (o *snapshotter) Usage(ctx context.Context, key string) (snapshots.Usage, e
 func (o *snapshotter) Prepare(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
 	unpacking := helper.IsExtract(key)
 	log.G(ctx).WithField("key", key).WithField("parent", parent).WithField("unpacking", unpacking).Debug("Prepare")
-	return o.createSnapshot(ctx, snapshots.KindActive, key, parent, unpacking, opts)
+	if unpacking {
+		tmp := make(map[string]string)
+		tmp[lazyLabel] = lazyLabelVal
+		opts = append(opts, snapshots.WithLabels(tmp))
+	}
+	return o.createSnapshot(ctx, snapshots.KindActive, key, parent, opts)
 }
 
 func (o *snapshotter) View(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
 	log.G(ctx).WithField("key", key).WithField("parent", parent).Debug("View")
-	return o.createSnapshot(ctx, snapshots.KindView, key, parent, false, opts)
+	return o.createSnapshot(ctx, snapshots.KindView, key, parent, opts)
 }
 
 // Mounts returns the mounts for the transaction identified by key. Can be
@@ -364,7 +371,7 @@ func (o *snapshotter) getCleanupDirectories(ctx context.Context, t storage.Trans
 	return cleanup, nil
 }
 
-func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, key, parent string, unpacking bool, opts []snapshots.Opt) (_ []mount.Mount, err error) {
+func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, key, parent string, opts []snapshots.Opt) (_ []mount.Mount, err error) {
 	ctx, t, err := o.ms.TransactionContext(ctx, true)
 	if err != nil {
 		return nil, err
@@ -409,6 +416,9 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 		return nil, errors.Wrap(err, "failed to create snapshot")
 	}
 
+	_, info, _, err := storage.GetInfo(ctx, key)
+	_, unpacking := info.Labels[lazyLabel]
+
 	if len(s.ParentIDs) > 0 {
 		var parentPath, tmpPath string
 		if unpacking {
@@ -438,8 +448,6 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 		return nil, errors.Wrap(err, "failed to rename")
 	}
 	td = ""
-
-	_, info, _, err := storage.GetInfo(ctx, key)
 
 	rollback = false
 	if err = t.Commit(); err != nil {
