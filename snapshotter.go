@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 /*
@@ -475,7 +476,7 @@ func (o *snapshotter) tryLazyMount(id string) {
 		mnt := mount.Mount{
 			Type:    fusecafsBinary,
 			Source:  filepath.Join(o.metaPath(id), "metadata.json"),
-			Options: []string{},
+			Options: []string{"allow_other"},
 		}
 		mnt.Mount(o.upperPath(id))
 	}
@@ -500,7 +501,7 @@ func (o *snapshotter) mounts(s storage.Snapshot, info snapshots.Info) []mount.Mo
 			{
 				Type:    fusecafsBinary,
 				Source:  filepath.Join(o.metaPath(s.ID), "metadata.json"),
-				Options: []string{},
+				Options: []string{"allow_other"},
 			},
 		}
 	}
